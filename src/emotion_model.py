@@ -9,9 +9,15 @@ OpenAI-based analyzer so that the rest of the app can
 use a unified interface.
 """
 
+from collections import Counter
+import re
+
+
 def rule_based_emotion_model(dream_text: str):
     """
-    Very simple keyword-based emotion model.
+    Keyword-based emotion model.
+
+    Different dream texts should produce different emotion patterns.
 
     Returns:
         {
@@ -30,93 +36,100 @@ def rule_based_emotion_model(dream_text: str):
         }
     """
     text_lower = dream_text.lower()
+    words = re.findall(r"[a-z]+", text_lower)
+    counts = Counter(words)
 
+    def has_any(cands):
+        return any(w in counts for w in cands)
+
+    # base values
     emotions = {
-        "Fear": 0.2,
-        "Desire": 0.2,
-        "Calm": 0.2,
-        "Mystery": 0.2,
-        "Connection": 0.2,
-        "Transformation": 0.2,
+        "Fear": 0.1,
+        "Desire": 0.1,
+        "Calm": 0.1,
+        "Mystery": 0.1,
+        "Connection": 0.1,
+        "Transformation": 0.1,
     }
 
-    def boost(name, value):
-        emotions[name] = emotions.get(name, 0.0) + value
-
-    # Simple keyword lists (can be extended)
+    # Fear related
     fear_words = [
-        "chase", "chasing", "afraid", "scared", "dark",
-        "monster", "run away", "fall", "falling", "exam", "test"
+        "afraid", "scared", "fear", "terrified", "nightmare",
+        "dark", "shadow", "monster", "chasing", "chase",
+        "run", "running", "falling", "lost"
     ]
+    if has_any(fear_words):
+        emotions["Fear"] += 0.5
+
+    if "tunnel" in counts or "underground" in counts:
+        emotions["Fear"] += 0.2
+        emotions["Mystery"] += 0.2
+
+    if "exam" in counts or "test" in counts:
+        emotions["Fear"] += 0.3
+        emotions["Desire"] += 0.2
+
+    # Desire / longing
     desire_words = [
-        "kiss", "love", "want", "wish", "date",
-        "beautiful", "pretty", "wedding"
+        "love", "loved", "kiss", "want", "wish",
+        "longing", "desire", "romantic", "date"
     ]
-    calm_words = [
-        "sea", "ocean", "beach", "floating", "fly",
-        "flying", "sky", "calm", "peaceful"
-    ]
+    if has_any(desire_words):
+        emotions["Desire"] += 0.5
+
+    # Calm / safe
+    calm_words = ["floating", "fly", "flying", "calm", "quiet", "peaceful"]
+    water_words = ["sea", "ocean", "water", "lake", "river", "waves"]
+    if has_any(calm_words) or has_any(water_words):
+        emotions["Calm"] += 0.5
+        emotions["Mystery"] += 0.1
+
+    # Mystery
     mystery_words = [
-        "fog", "unknown", "strange", "mystery",
-        "mysterious", "shadow", "portal"
+        "strange", "weird", "unknown", "portal", "door",
+        "fog", "smoke", "mysterious", "secret"
     ]
+    if has_any(mystery_words):
+        emotions["Mystery"] += 0.5
+
+    # Connection
     connection_words = [
         "family", "friend", "friends", "together",
-        "hug", "group", "people"
+        "group", "people", "crowd", "someone"
     ]
+    if has_any(connection_words):
+        emotions["Connection"] += 0.5
+
+    # Transformation / change
     transform_words = [
-        "change", "transform", "transformation",
-        "reborn", "rebirth", "bridge", "door", "threshold"
+        "change", "changed", "transform", "transformation",
+        "reborn", "rebirth", "door", "gate", "opening",
+        "melting", "reforming", "new"
     ]
+    if has_any(transform_words):
+        emotions["Transformation"] += 0.5
 
-    for w in fear_words:
-        if w in text_lower:
-            boost("Fear", 0.2)
-    for w in desire_words:
-        if w in text_lower:
-            boost("Desire", 0.2)
-    for w in calm_words:
-        if w in text_lower:
-            boost("Calm", 0.2)
-    for w in mystery_words:
-        if w in text_lower:
-            boost("Mystery", 0.2)
-    for w in connection_words:
-        if w in text_lower:
-            boost("Connection", 0.2)
-    for w in transform_words:
-        if w in text_lower:
-            boost("Transformation", 0.2)
-
-    # Small global adjustments
-    if "exam" in text_lower or "test" in text_lower:
-        boost("Fear", 0.1)
-        boost("Desire", 0.1)
-    if "water" in text_lower or "sea" in text_lower or "ocean" in text_lower:
-        boost("Mystery", 0.1)
-        boost("Calm", 0.05)
-
-    # Clamp values to [0, 1]
+    # normalize to [0, 1]
+    max_v = max(emotions.values()) or 1.0
     for k in emotions:
-        emotions[k] = max(0.0, min(1.0, emotions[k]))
+        emotions[k] = min(1.0, emotions[k] / max_v)
 
     symbolic_summary = (
-        "This is a simplified, rule-based interpretation of your dream. "
-        "The system looks for words related to fear, desire, calmness, "
-        "mystery, connection, and transformation, and maps them into "
-        "numerical emotional values."
+        "This is a rule-based interpretation that detects words related to fear, "
+        "desire, calm, mystery, connection, and transformation in your dream "
+        "and converts them into emotional intensities."
     )
     tarot_shadow = (
-        "Your subconscious is trying to work with these mixed emotions "
-        "and unresolved questions."
+        "Your subconscious is processing these mixed feelings and turning them "
+        "into symbolic images during sleep."
     )
     tarot_energy = (
-        "The aura energy here is a blend of tension, curiosity, "
-        "and a wish for emotional change."
+        "The aura around this dream is a blend of your current emotional state "
+        "and hidden wishes."
     )
     tarot_guidance = (
-        "Take time to name how you feel in waking life, and move one small "
-        "step toward what you truly want."
+        "Notice which part of the dream felt the strongest. That emotional color "
+        "is pointing toward something important in your waking life."
     )
 
     return {
