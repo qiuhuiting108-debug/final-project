@@ -1,14 +1,18 @@
 """
 generator.py
 
-Hybrid generative poster engine that combines:
-- A soft aura-style background field.
-- A lighter, more minimal geometric layer.
+Generative abstract poster engine for the
+Aura Tarot Dream Analyzer.
 
-This version focuses more on aesthetic composition:
-- Fewer rectangles
-- More negative space
-- Softer pastel palette
+This version focuses on:
+- Rich color gradients (colormaps)
+- Aura / ripple / energy field feeling
+- Very light geometric accents (optional)
+
+Styles:
+    "Aura Focus"       -> almost pure aura / energy field
+    "Hybrid"           -> aura + a few soft rectangles
+    "Geometric Focus"  -> aura + slightly stronger geometry
 """
 
 from typing import Dict
@@ -18,31 +22,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-# ---- Palette helpers ------------------------------------------------------
+# ---------------------------------------------------------------------
+# Helper: choose colormap based on emotions
+# ---------------------------------------------------------------------
 
 
-def get_pastel_palette():
+def choose_cmap(emotions: Dict[str, float]) -> str:
     """
-    Soft pastel palette, good for dreamy / aura visuals.
-    """
-    return [
-        (0.88, 0.69, 0.77),  # rose
-        (0.69, 0.80, 0.91),  # sky blue
-        (0.76, 0.86, 0.78),  # soft green
-        (0.97, 0.86, 0.68),  # peach
-        (0.86, 0.80, 0.92),  # lavender
-        (0.98, 0.93, 0.78),  # light yellow
-    ]
-
-
-# ---- Aura layer -----------------------------------------------------------
-
-
-def generate_aura_layer(ax, emotions: Dict[str, float], resolution: int = 500):
-    """
-    Draw an aura-style layer using a smooth 2D field
-    with radial and wave-like components.
-    The result is normalized and mapped into a soft RGB field.
+    Map the 6D emotion vector to a matplotlib colormap.
+    This is where "mood -> color style" happens.
     """
     fear = emotions["Fear"]
     desire = emotions["Desire"]
@@ -51,53 +39,111 @@ def generate_aura_layer(ax, emotions: Dict[str, float], resolution: int = 500):
     connection = emotions["Connection"]
     transform = emotions["Transformation"]
 
-    x = np.linspace(-1.4, 1.4, resolution)
-    y = np.linspace(-1.4, 1.4, resolution)
+    # Sum for normalization
+    s = fear + desire + calm + mystery + connection + transform + 1e-6
+
+    fear_n = fear / s
+    desire_n = desire / s
+    calm_n = calm / s
+    mystery_n = mystery / s
+
+    # Simple rule:
+    # - Fear + mystery  -> darker / mystical maps
+    # - Desire + connection -> warm maps
+    # - Calm high -> cool, clean maps
+    if fear_n + mystery_n > 0.5:
+        return "twilight"
+    elif desire_n + connection > 0.5:
+        return "plasma"
+    elif calm_n > 0.4:
+        return "viridis"
+    else:
+        # Mixed state
+        return "magma"
+
+
+# ---------------------------------------------------------------------
+# Aura / field generation
+# ---------------------------------------------------------------------
+
+
+def generate_aura_field(emotions: Dict[str, float], resolution: int = 600):
+    """
+    Create a 2D scalar field that feels like an energy / aura pattern.
+    We only return the scalar field; colormap is applied later.
+    """
+    fear = emotions["Fear"]
+    desire = emotions["Desire"]
+    calm = emotions["Calm"]
+    mystery = emotions["Mystery"]
+    connection = emotions["Connection"]
+    transform = emotions["Transformation"]
+
+    x = np.linspace(-1.6, 1.6, resolution)
+    y = np.linspace(-1.6, 1.6, resolution)
     X, Y = np.meshgrid(x, y)
     R = np.sqrt(X**2 + Y**2)
+    theta = np.arctan2(Y, X)
 
-    # Base glow
-    field = np.exp(-R**2 * (1.8 - 0.8 * calm))
+    # Base radial glow: calm makes it softer / wider,
+    # fear makes it sharper and more concentrated.
+    base = np.exp(-R**2 * (1.5 + 1.5 * fear - 0.8 * calm))
 
-    # Desire & connection as off-center glows
-    field += 0.7 * desire * np.exp(-((X - 0.4)**2 + (Y + 0.2)**2) * 3)
-    field += 0.7 * connection * np.exp(-((X + 0.5)**2 + (Y - 0.3)**2) * 3)
+    # Off-center "cores" driven by desire / connection
+    core1 = np.exp(-((X - 0.45)**2 + (Y + 0.1)**2) * (4 + 2 * desire))
+    core2 = np.exp(-((X + 0.35)**2 + (Y - 0.2)**2) * (4 + 2 * connection))
 
-    # Mystery & fear as wave perturbations
-    field += 0.35 * mystery * np.sin(7 * R + 4 * X) * np.exp(-R**2 * 1.8)
-    field += 0.25 * fear * np.cos(9 * R + 3 * Y) * np.exp(-R**2 * 1.6)
+    # Ring-like structures from transformation
+    rings = np.cos(8 * R - 3 * transform) * np.exp(-R**2 * 2.0)
 
-    # Transformation as overall brightness & subtle ring
-    field += 0.25 * transform * np.exp(-((R - 0.7)**2) * 8)
+    # Angular (theta) waves for mystery
+    angular_waves = np.sin(5 * theta + 4 * R) * np.exp(-R**2 * 1.3)
 
-    # Color channels: cool/warm balance
-    cool = 0.3 + 0.4 * calm + 0.4 * mystery + 0.2 * fear
-    warm = 0.2 + 0.6 * desire + 0.5 * connection
-    mid = 0.3 + 0.4 * connection + 0.3 * transform
+    field = (
+        0.9 * base
+        + 0.6 * desire * core1
+        + 0.6 * connection * core2
+        + 0.4 * transform * rings
+        + 0.4 * mystery * angular_waves
+    )
 
-    R_ch = warm * field
-    G_ch = mid * field
-    B_ch = cool * field
+    # Small global bump if emotions are all low – avoid flat image
+    total_emotion = fear + desire + calm + mystery + connection + transform
+    if total_emotion < 0.6:
+        field += 0.2 * np.exp(-R**2 * 1.2)
 
-    img = np.stack([R_ch, G_ch, B_ch], axis=2)
-    img = img - img.min()
-    img = img / (img.max() + 1e-6)
-
-    # Slight overall brightness boost
-    img = np.clip(img * (0.9 + 0.4 * transform), 0, 1)
-
-    ax.imshow(img, extent=(0, 1, 0, 1), origin="lower")
-
-
-# ---- Geometric layer ------------------------------------------------------
+    # Normalize field to 0–1
+    field = field - field.min()
+    field = field / (field.max() + 1e-6)
+    return field
 
 
-def generate_geometric_layer(ax, emotions: Dict[str, float], seed: int = 0):
+def draw_aura_layer(ax, emotions: Dict[str, float], resolution: int = 600):
     """
-    Draw a lighter geometric layer:
-    - Fewer rectangles
-    - More transparency
-    - Softer pastel colors
+    Draw the aura field using a colormap chosen by emotions.
+    """
+    cmap_name = choose_cmap(emotions)
+    field = generate_aura_field(emotions, resolution=resolution)
+
+    ax.imshow(
+        field,
+        cmap=cmap_name,
+        extent=(0, 1, 0, 1),
+        origin="lower",
+    )
+
+    return field  # in case we want to overlay rings etc. later
+
+
+# ---------------------------------------------------------------------
+# Geometric accents (very light)
+# ---------------------------------------------------------------------
+
+
+def draw_geometric_accents(ax, emotions: Dict[str, float], seed: int = 0, density_scale: float = 1.0):
+    """
+    Light geometric accents: a few semi-transparent rectangles.
+    If you want almost no rectangles, use density_scale < 1.
     """
     random.seed(seed)
     np.random.seed(seed)
@@ -107,87 +153,88 @@ def generate_geometric_layer(ax, emotions: Dict[str, float], seed: int = 0):
     calm = emotions["Calm"]
     transform = emotions["Transformation"]
 
-    palette = get_pastel_palette()
+    # Pastel-ish palette as accents (only a few used)
+    palette = [
+        (0.96, 0.74, 0.80),  # soft pink
+        (0.80, 0.86, 0.97),  # light blue
+        (0.88, 0.90, 0.78),  # gentle green
+        (0.98, 0.88, 0.70),  # peach
+        (0.86, 0.80, 0.92),  # lavender
+    ]
 
-    # Fewer cells for more negative space
-    base_cells = 4
-    extra_cells = int(transform * 3)  # 0–3 more
-    cells = base_cells + extra_cells  # 4–7
+    # Base number of shapes – not a grid now, but random placements
+    base_n = int(6 * density_scale)
+    extra_n = int(10 * transform * density_scale)
+    n_shapes = base_n + extra_n
 
-    for i in range(cells):
-        for j in range(cells):
-            # Randomly skip many cells to avoid overcrowding
-            skip_prob = 0.45 + 0.25 * calm  # more calm → more empty space
-            if random.random() < skip_prob:
-                continue
+    for _ in range(n_shapes):
+        # More calm -> more empty, so we skip with some probability
+        if random.random() < 0.3 + 0.3 * calm:
+            continue
 
-            x = i / cells
-            y = j / cells
-            w = 1.0 / cells
-            h = 1.0 / cells
+        cx = random.uniform(0.1, 0.9)
+        cy = random.uniform(0.1, 0.9)
 
-            # Transparency: less fear + desire → lighter layer
-            alpha = 0.06 + 0.25 * (fear + desire)
+        # Size based on fear / desire
+        base_size = 0.08 + 0.12 * (fear + desire)
+        w = base_size * random.uniform(0.7, 1.4)
+        h = base_size * random.uniform(0.6, 1.4)
 
-            color = random.choice(palette)
+        alpha = 0.06 + 0.22 * (fear + desire)
 
-            jitter_x = (random.random() - 0.5) * w * 0.35
-            jitter_y = (random.random() - 0.5) * h * 0.35
+        color = random.choice(palette)
 
-            rect_w = w * (0.6 + 0.7 * random.random())
-            rect_h = h * (0.6 + 0.7 * random.random())
-
-            rect = plt.Rectangle(
-                (x + jitter_x, y + jitter_y),
-                rect_w,
-                rect_h,
-                linewidth=0,
-                color=color,
-                alpha=alpha,
-            )
-            ax.add_patch(rect)
+        rect = plt.Rectangle(
+            (cx - w / 2, cy - h / 2),
+            w,
+            h,
+            linewidth=0,
+            color=color,
+            alpha=alpha,
+        )
+        ax.add_patch(rect)
 
 
-# ---- Public API -----------------------------------------------------------
+# ---------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------
 
 
 def generate_hybrid_poster(
     emotions: Dict[str, float],
     style: str = "Hybrid",
-    seed: int = 0
+    seed: int = 0,
 ):
     """
-    Generate a hybrid poster where:
-    - The background is a smooth, dreamy aura field.
-    - The foreground uses a minimal geometric layer.
+    Main entry point used by the Streamlit app.
 
-    Styles:
-        "Hybrid"           – balanced aura + geometry
-        "Geometric Focus"  – slightly stronger geometry, lighter aura
-        "Aura Focus"       – aura dominates, very light geometry
+    style:
+        "Aura Focus"       -> almost pure aura field
+        "Hybrid"           -> aura + some geometric accents
+        "Geometric Focus"  -> aura + more shapes (still not too many)
     """
     fig, ax = plt.subplots(figsize=(4.5, 6.5))
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis("off")
 
-    # Background aura
-    generate_aura_layer(ax, emotions, resolution=520)
+    # Draw aura first
+    field = draw_aura_layer(ax, emotions, resolution=640)
 
-    # Adjust aura visibility depending on style
+    # Adjust aura visibility by style
     if style == "Geometric Focus":
         for im in ax.images:
-            im.set_alpha(0.7)
+            im.set_alpha(0.80)
+        draw_geometric_accents(ax, emotions, seed=seed, density_scale=1.4)
     elif style == "Aura Focus":
         for im in ax.images:
-            im.set_alpha(0.95)
-    else:  # Hybrid
+            im.set_alpha(0.98)
+        # Very light accents, or you can comment this out if you want pure aura
+        draw_geometric_accents(ax, emotions, seed=seed, density_scale=0.4)
+    else:  # "Hybrid"
         for im in ax.images:
-            im.set_alpha(0.85)
-
-    # Geometric layer
-    generate_geometric_layer(ax, emotions, seed=seed)
+            im.set_alpha(0.90)
+        draw_geometric_accents(ax, emotions, seed=seed, density_scale=0.9)
 
     ax.set_title("Aura Tarot Poster", pad=10)
     return fig
-
