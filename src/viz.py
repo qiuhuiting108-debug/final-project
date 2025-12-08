@@ -1,69 +1,58 @@
-"""
-viz.py
-
-Visualization utilities:
-- Radar chart for the 6D emotion model.
-- Aura energy spectrum bar.
-"""
-
-from math import pi
-from typing import Dict
+# src/viz.py
 
 import matplotlib.pyplot as plt
+import numpy as np
+
+from .emotion_model import EMOTIONS, EMOTION_COLORS, blend_color, apply_style_to_color
 
 
-def plot_emotion_radar(emotions: Dict[str, float]):
-    """
-    Plot a 6-axis radar chart for the emotional values.
-    """
-    labels = list(emotions.keys())
-    num_vars = len(labels)
-    values = list(emotions.values())
-    values += values[:1]  # close polygon
+def create_radar_chart(emotion_scores):
+    """Create a radar chart of the dream's emotional structure."""
+    values = [emotion_scores[e] for e in EMOTIONS]
+    values.append(values[0])  # close the loop
 
-    angles = [n / float(num_vars) * 2 * pi for n in range(num_vars)]
-    angles += angles[:1]
+    angles = np.linspace(0, 2 * np.pi, len(EMOTIONS), endpoint=False).tolist()
+    angles.append(angles[0])
 
-    fig, ax = plt.subplots(subplot_kw=dict(polar=True))
-    fig.set_size_inches(4, 4)
-
+    fig, ax = plt.subplots(figsize=(4, 4), subplot_kw=dict(polar=True))
     ax.plot(angles, values, linewidth=2)
     ax.fill(angles, values, alpha=0.25)
-
     ax.set_xticks(angles[:-1])
-    ax.set_xticklabels(labels)
+    ax.set_xticklabels(EMOTIONS)
     ax.set_yticklabels([])
-
     ax.set_title("Dream Emotion Radar", pad=20)
+    fig.tight_layout()
     return fig
 
 
-def plot_aura_bar(emotions: Dict[str, float]):
+def create_aura_bar(emotion_scores, style: str):
     """
-    Plot a horizontal bar showing the aura energy distribution
-    according to the 6 emotional dimensions.
+    Create a horizontal aura spectrum bar based on emotional strengths.
     """
-    fig, ax = plt.subplots(figsize=(4, 1))
+    num_steps = 300
+    colors = []
 
-    color_map = {
-        "Fear": "#1f3b73",          # deep blue
-        "Desire": "#e75480",        # pink-red
-        "Calm": "#7fc8f8",          # soft blue
-        "Mystery": "#6a4c93",       # violet
-        "Connection": "#f4a261",    # warm orange
-        "Transformation": "#f6e05e" # golden yellow
-    }
+    for i in range(num_steps):
+        t = i / (num_steps - 1)
+        idx = int(t * (len(EMOTIONS) - 1))
+        frac = t * (len(EMOTIONS) - 1) - idx
 
-    total = sum(emotions.values()) + 1e-6
-    start = 0.0
-    for name, value in emotions.items():
-        width = value / total
-        ax.barh(0, width, left=start, color=color_map.get(name, "#888888"))
-        start += width
+        emo1 = EMOTIONS[idx]
+        emo2 = EMOTIONS[min(idx + 1, len(EMOTIONS) - 1)]
+        c1 = EMOTION_COLORS[emo1]
+        c2 = EMOTION_COLORS[emo2]
 
-    ax.set_xlim(0, 1)
-    ax.set_yticks([])
-    ax.set_xticks([])
-    ax.set_title("Aura Energy Spectrum")
+        base = blend_color(c1, c2, frac)
+        strength = (emotion_scores[emo1] + emotion_scores[emo2]) / 2
+        mixed = blend_color((0.0, 0.0, 0.0), base, 0.4 + 0.6 * strength)
+        styled = apply_style_to_color(mixed, style)
+        colors.append(styled)
 
+    gradient = np.array(colors)[np.newaxis, :, :]
+
+    fig, ax = plt.subplots(figsize=(6, 1.0))
+    ax.imshow(gradient, aspect="auto")
+    ax.set_axis_off()
+    ax.set_title("Aura Energy Spectrum", pad=8)
+    fig.tight_layout()
     return fig
