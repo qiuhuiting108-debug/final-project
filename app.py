@@ -1,165 +1,226 @@
 import streamlit as st
 from io import BytesIO
 
-# import local modules from src/
+# local modules from src/
 from src.emotion_model import EMOTIONS, extract_emotions
 from src.analyzer import SYMBOLS, analyze_symbols, generate_tarot_reading
 from src.viz import create_radar_chart, create_aura_bar
 from src.generator import create_aura_poster
+
+# Optional OpenAI client (for aura title & caption)
+try:
+    from openai import OpenAI
+except Exception:  # optional dependency
+    OpenAI = None
+
+
+def generate_openai_aura_title(api_key: str, dream_text: str, emotion_scores: dict):
+    """
+    Use OpenAI (if api_key is provided) to generate a poetic aura title
+    and one-line caption. Returns (title, caption) or (None, None).
+    """
+    if not api_key or OpenAI is None:
+        return None, None
+
+    try:
+        client = OpenAI(api_key=api_key)
+        emo_summary = ", ".join(f"{k}: {v:.2f}" for k, v in emotion_scores.items())
+        prompt = (
+            "You are an AI artist. Create a very short, poetic title and a one-sentence "
+            "caption for a generative dream aura poster.\n\n"
+            f"Dream text: {dream_text}\n"
+            f"Emotional profile (0-1): {emo_summary}\n\n"
+            "Return your answer in the following format:\n"
+            "Title: <short title>\n"
+            "Caption: <one sentence, max 25 words>"
+        )
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.9,
+            max_tokens=120,
+        )
+        content = response.choices[0].message.content.strip()
+
+        title = None
+        caption = None
+        for line in content.splitlines():
+            line = line.strip()
+            if line.lower().startswith("title:"):
+                title = line.split(":", 1)[1].strip()
+            elif line.lower().startswith("caption:"):
+                caption = line.split(":", 1)[1].strip()
+        return title, caption
+    except Exception:
+        # If anything goes wrong, just fall back to heuristic version
+        return None, None
 
 
 def main():
     st.set_page_config(
         page_title="Aura Tarot Dream Analyzer",
         page_icon="💫",
-        layout="centered",
+        layout="wide",
     )
 
-    # -----------------------------
-    # Title & high-level description
-    # -----------------------------
+    # ----------------- HEADER -----------------
     st.title("💫 Aura Tarot Dream Analyzer")
-
-    st.markdown(
-        """
-This app turns your **dream text** into:
-
-1. Simple **symbol parsing**  
-2. Six-dimensional **emotional factors**  
-3. Visual outputs:
-   - Symbol explanations  
-   - Emotion **radar chart**  
-   - **Aura energy bar**  
-   - Abstract **Aura poster**  
-   - Tarot-style **interpretation text**  
-4. A download button for your Aura poster (PNG)
-"""
+    st.write(
+        "Turn your dream into **symbols, emotional data, aura colors,** "
+        "a **generative art poster**, and a gentle **tarot-style reflection**."
     )
 
-    # -----------------------------
-    # Sidebar: style selection
-    # -----------------------------
+    # ----------------- SIDEBAR -----------------
     with st.sidebar:
-        st.header("Settings")
-        style = st.selectbox(
+        st.header("Dream Settings")
+
+        aura_style = st.selectbox(
             "Aura style",
             ["Mystic", "Pastel", "Cyber", "Golden"],
             index=0,
         )
-        st.markdown(
-            """
-**Aura Styles**
 
-- *Mystic*: deep, cosmic tones  
-- *Pastel*: soft, dreamy colors  
-- *Cyber*: high contrast, neon-like  
-- *Golden*: warm, ritual-like glow  
-"""
+        poster_complexity = st.slider(
+            "Poster complexity",
+            min_value=0.6,
+            max_value=1.6,
+            value=1.0,
+            step=0.1,
+            help="Controls how many layers / blobs the aura poster will use.",
         )
 
-    # -----------------------------
-    # Step 1 – Input dream text
-    # -----------------------------
-    st.subheader("1. Input dream text")
+        st.markdown("---")
+        st.subheader("OpenAI (optional)")
+        api_key = st.text_input(
+            "Your OpenAI API key",
+            type="password",
+            help="If provided, the app will generate a poetic aura title & caption.",
+        )
+        st.caption(
+            "Core analysis runs locally. The OpenAI key is only used to enhance "
+            "the title/caption and is **optional**."
+        )
+
+    # ----------------- STEP 1: DREAM INPUT -----------------
+    st.markdown("### 1. Enter dream text")
     dream_text = st.text_area(
-        "Write a short description of your dream (any language is okay).",
-        height=200,
+        "Describe your dream in 3–10 sentences.",
+        height=220,
         placeholder=(
             "Example: I was running in a dark train station, wearing a white dress. "
             "The sea was below the bridge and I was afraid of falling..."
         ),
     )
 
-    analyze = st.button("✨ Analyze Dream")
+    analyze_clicked = st.button("✨ Analyze Dream & Generate Aura")
 
-    # If button not clicked, just show instructions
-    if not analyze:
-        st.info("Write your dream above and click **“✨ Analyze Dream”** to see all results.")
+    if not analyze_clicked:
+        st.info(
+            "Write your dream above and click **“✨ Analyze Dream & Generate Aura”**.\n\n"
+            "The app will then:\n"
+            "1. Parse key dream symbols\n"
+            "2. Compute six emotional factors\n"
+            "3. Visualize a radar chart & aura bar\n"
+            "4. Generate an abstract aura poster\n"
+            "5. Provide tarot-style interpretation text"
+        )
         return
 
     if not dream_text.strip():
         st.warning("Please write something about your dream first.")
         return
 
-    # =====================================================
-    # 2. Simple symbol parsing
-    # =====================================================
-    st.subheader("2. Simple symbol parsing")
+    # ================= ANALYSIS LAYERS =================
+    # Layer 1: symbols
     symbols = analyze_symbols(dream_text)
+    # Layer 2: six emotional factors
+    emotion_scores = extract_emotions(dream_text)
+    # Optional OpenAI aura title / caption
+    aura_title, aura_caption = generate_openai_aura_title(api_key, dream_text, emotion_scores)
 
-    if symbols:
-        st.write("Detected symbols and their meanings:")
-        for s in symbols:
-            explanation = SYMBOLS.get(s, "")
-            st.markdown(f"- **{s.capitalize()}** — {explanation}")
-    else:
-        st.write(
-            "No predefined symbols were detected, "
-            "but your dream will still be analyzed on the emotional level."
+    # --------- TABS: like classmates' rich dashboards ---------
+    tab_overview, tab_data, tab_poster = st.tabs(
+        ["🌙 Overview", "📊 Emotional Data & Aura", "🎨 Poster & Tarot"]
+    )
+
+    # ----------------- TAB 1: OVERVIEW -----------------
+    with tab_overview:
+        st.subheader("Layer 1 — Symbolic interpretation (What you saw)")
+        if symbols:
+            st.write("Detected symbols and short meanings:")
+            for s in symbols:
+                explanation = SYMBOLS.get(s, "")
+                st.markdown(f"- **{s.capitalize()}** — {explanation}")
+        else:
+            st.write(
+                "No predefined symbols were matched, but your dream will still be "
+                "interpreted through emotional pattern and aura art."
+            )
+
+        st.markdown("---")
+        st.subheader("Dream aura summary")
+        if aura_title:
+            st.markdown(f"**OpenAI Aura Title:** {aura_title}")
+            if aura_caption:
+                st.caption(aura_caption)
+        else:
+            st.write(
+                "Aura title: *A field of colors shaped by your emotional profile.*  \n"
+                "You can add an OpenAI API key in the sidebar to get a custom poetic title."
+            )
+
+    # ----------------- TAB 2: DATA & AURA -----------------
+    with tab_data:
+        st.subheader("Layer 2 — Six emotional factors (What you felt)")
+
+        cols = st.columns(len(EMOTIONS))
+        for col, emo in zip(cols, EMOTIONS):
+            with col:
+                st.metric(emo, f"{emotion_scores[emo]:.2f}")
+
+        st.markdown("#### Emotion radar chart")
+        radar_fig = create_radar_chart(emotion_scores)
+        st.pyplot(radar_fig, use_container_width=True)
+
+        st.markdown("#### Aura energy bar (color spectrum)")
+        aura_fig = create_aura_bar(emotion_scores, aura_style)
+        st.pyplot(aura_fig, use_container_width=True)
+
+    # ----------------- TAB 3: POSTER & TAROT -----------------
+    with tab_poster:
+        st.subheader("Layer 3 — Generative Aura Poster (Emotional DNA)")
+
+        # poster_complexity 影响图层数量，让不同梦境更明显
+        scaled_scores = {k: v * poster_complexity for k, v in emotion_scores.items()}
+        poster_fig = create_aura_poster(scaled_scores, aura_style)
+        st.pyplot(poster_fig, use_container_width=True)
+
+        # Download button
+        buf = BytesIO()
+        poster_fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
+        buf.seek(0)
+        st.download_button(
+            label="📥 Download Aura Poster (PNG)",
+            data=buf,
+            file_name="aura_dream_poster.png",
+            mime="image/png",
         )
 
-    # =====================================================
-    # 3. Emotional model – six-dimensional factors
-    # =====================================================
-    st.subheader("3. Six emotional factors")
-    emotion_scores = extract_emotions(dream_text)
+        st.markdown("---")
+        st.subheader("Layer 4 — Tarot-style interpretation (What it means)")
+        shadow, energy, guidance = generate_tarot_reading(symbols, emotion_scores)
 
-    cols = st.columns(len(EMOTIONS))
-    for col, emo in zip(cols, EMOTIONS):
-        with col:
-            st.metric(emo, f"{emotion_scores[emo]:.2f}")
+        st.markdown("**Shadow — subconscious message**")
+        st.write(shadow)
 
-    # -----------------------------------------------------
-    # 3-1. Emotion radar chart
-    # -----------------------------------------------------
-    st.markdown("**Emotion radar chart**")
-    radar_fig = create_radar_chart(emotion_scores)
-    st.pyplot(radar_fig)
+        st.markdown("**Energy — current emotional flow**")
+        st.write(energy)
 
-    # -----------------------------------------------------
-    # 3-2. Aura energy bar
-    # -----------------------------------------------------
-    st.markdown("**Aura energy bar**")
-    aura_fig = create_aura_bar(emotion_scores, style)
-    st.pyplot(aura_fig)
+        st.markdown("**Guidance — supportive insight**")
+        st.write(guidance)
 
-    # =====================================================
-    # 4. Generative Aura poster
-    # =====================================================
-    st.subheader("4. Generative Aura poster")
-    poster_fig = create_aura_poster(emotion_scores, style)
-    st.pyplot(poster_fig)
-
-    # Download button for poster
-    buf = BytesIO()
-    poster_fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
-    buf.seek(0)
-    st.download_button(
-        label="📥 Download Aura Poster (PNG)",
-        data=buf,
-        file_name="aura_dream_poster.png",
-        mime="image/png",
-    )
-
-    # =====================================================
-    # 5. Tarot-style interpretation
-    # =====================================================
-    st.subheader("5. Tarot-style interpretation")
-
-    shadow_text, energy_text, guidance_text = generate_tarot_reading(
-        symbols, emotion_scores
-    )
-
-    st.markdown("**Shadow – Subconscious message**")
-    st.write(shadow_text)
-
-    st.markdown("**Energy – Current emotional flow**")
-    st.write(energy_text)
-
-    st.markdown("**Guidance – Supportive insight**")
-    st.write(guidance_text)
-
-    st.success("Done! You can scroll up to review all layers of your dream analysis.")
+        st.caption("Dream → Meaning → Data → Art → Guidance")
 
 
 if __name__ == "__main__":
