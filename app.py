@@ -53,7 +53,6 @@ def generate_openai_aura_title(api_key: str, dream_text: str, emotion_scores: di
                 caption = line.split(":", 1)[1].strip()
         return title, caption
     except Exception:
-        # If anything goes wrong, just fall back to heuristic version
         return None, None
 
 
@@ -132,14 +131,12 @@ def main():
         return
 
     # ================= ANALYSIS LAYERS =================
-    # Layer 1: symbols
     symbols = analyze_symbols(dream_text)
-    # Layer 2: six emotional factors
     emotion_scores = extract_emotions(dream_text)
-    # Optional OpenAI aura title / caption
-    aura_title, aura_caption = generate_openai_aura_title(api_key, dream_text, emotion_scores)
+    aura_title, aura_caption = generate_openai_aura_title(
+        api_key, dream_text, emotion_scores
+    )
 
-    # --------- TABS: like classmates' rich dashboards ---------
     tab_overview, tab_data, tab_poster = st.tabs(
         ["🌙 Overview", "📊 Emotional Data & Aura", "🎨 Poster & Tarot"]
     )
@@ -173,7 +170,6 @@ def main():
     # ----------------- TAB 2: DATA & AURA -----------------
     with tab_data:
         st.subheader("Layer 2 — Six emotional factors (What you felt)")
-
         cols = st.columns(len(EMOTIONS))
         for col, emo in zip(cols, EMOTIONS):
             with col:
@@ -190,13 +186,10 @@ def main():
     # ----------------- TAB 3: POSTER & TAROT -----------------
     with tab_poster:
         st.subheader("Layer 3 — Generative Aura Poster (Emotional DNA)")
-
-        # poster_complexity 影响图层数量，让不同梦境更明显
         scaled_scores = {k: v * poster_complexity for k, v in emotion_scores.items()}
         poster_fig = create_aura_poster(scaled_scores, aura_style)
         st.pyplot(poster_fig, use_container_width=True)
 
-        # Download button
         buf = BytesIO()
         poster_fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
         buf.seek(0)
@@ -225,3 +218,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
