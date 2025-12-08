@@ -1,141 +1,109 @@
-"""
-emotion_model.py
+# src/emotion_model.py
 
-Simple rule-based emotion model used as a fallback when
-the OpenAI API is not available or fails.
+import numpy as np
 
-It outputs a dictionary in the same structure as the
-OpenAI-based analyzer so that the rest of the app can
-use a unified interface.
-"""
+# Global emotion dimensions (order matters in plots)
+EMOTIONS = ["Fear", "Desire", "Calm", "Mystery", "Connection", "Transformation"]
 
-from collections import Counter
-import re
+# Base RGB colors (0–1) for each emotion
+EMOTION_COLORS = {
+    "Fear": (0.1, 0.1, 0.4),           # deep blue / indigo
+    "Desire": (0.9, 0.3, 0.3),         # warm red / pink
+    "Calm": (0.3, 0.7, 0.6),           # soft green / blue
+    "Mystery": (0.4, 0.2, 0.5),        # violet / twilight
+    "Connection": (1.0, 0.6, 0.2),     # warm orange / peach
+    "Transformation": (1.0, 0.9, 0.5), # gold / white light
+}
+
+# Keyword → emotion weight mapping (Layer 2)
+KEYWORD_EMOTION_WEIGHTS = {
+    "water": {"Calm": 0.4, "Fear": 0.2, "Mystery": 0.2},
+    "sea": {"Calm": 0.5, "Mystery": 0.2},
+    "ocean": {"Calm": 0.4, "Mystery": 0.3},
+    "river": {"Calm": 0.4, "Connection": 0.2},
+    "drown": {"Fear": 0.6, "Mystery": 0.2},
+    "fire": {"Desire": 0.4, "Transformation": 0.3},
+    "bridge": {"Transformation": 0.4, "Connection": 0.3},
+    "fall": {"Fear": 0.6, "Transformation": 0.2},
+    "train": {"Mystery": 0.3, "Connection": 0.2, "Fear": 0.2},
+    "station": {"Mystery": 0.3, "Connection": 0.3},
+    "stranger": {"Mystery": 0.4, "Connection": 0.2},
+    "dark": {"Fear": 0.5, "Mystery": 0.3},
+    "light": {"Transformation": 0.4, "Calm": 0.3},
+    "white dress": {"Desire": 0.2, "Transformation": 0.4, "Calm": 0.2},
+    "door": {"Transformation": 0.4, "Mystery": 0.2},
+    "corridor": {"Mystery": 0.4, "Fear": 0.2},
+    "chase": {"Fear": 0.6, "Desire": 0.2},
+    "exam": {"Fear": 0.5, "Desire": 0.3},
+    "family": {"Connection": 0.6, "Calm": 0.2},
+    "friend": {"Connection": 0.6, "Calm": 0.2},
+    "lover": {"Desire": 0.5, "Connection": 0.3},
+    "kiss": {"Desire": 0.5, "Connection": 0.3},
+    "argue": {"Fear": 0.4, "Connection": -0.2},
+    "fight": {"Fear": 0.5, "Connection": -0.3},
+    "death": {"Fear": 0.7, "Transformation": 0.3},
+    "reborn": {"Transformation": 0.6, "Calm": 0.2},
+    "flying": {"Desire": 0.3, "Transformation": 0.4, "Calm": 0.3},
+    "school": {"Fear": 0.2, "Desire": 0.2, "Connection": 0.1},
+}
 
 
-def rule_based_emotion_model(dream_text: str):
+def blend_color(c1, c2, alpha: float = 0.5):
+    """Linear blend between two RGB colors."""
+    return tuple((1 - alpha) * a + alpha * b for a, b in zip(c1, c2))
+
+
+def apply_style_to_color(color, style: str):
+    """Adapt a base color to the selected aura style."""
+    r, g, b = color
+
+    if style == "Pastel":
+        # Move toward white, softer look
+        return blend_color((r, g, b), (1.0, 1.0, 1.0), 0.5)
+
+    if style == "Cyber":
+        # Higher contrast, neon-like
+        return (min(r * 1.3, 1.0), min(g * 1.3, 1.0), min(b * 1.5, 1.0))
+
+    if style == "Golden":
+        gold = (1.0, 0.84, 0.3)
+        return blend_color((r, g, b), gold, 0.6)
+
+    if style == "Mystic":
+        mystic = (0.3, 0.2, 0.5)
+        return blend_color((r, g, b), mystic, 0.5)
+
+    return color
+
+
+def extract_emotions(text: str):
     """
-    Keyword-based emotion model.
+    Convert dream text into six emotional factors (0–1).
+    Simple keyword-based heuristic model.
+    """
+    text_lower = text.lower()
+    scores = {e: 0.1 for e in EMOTIONS}  # small base score
 
-    Different dream texts should produce different emotion patterns.
+    for keyword, weights in KEYWORD_EMOTION_WEIGHTS.items():
+        if keyword in text_lower:
+            for emo, weight in weights.items():
+                if emo in scores:
+                    scores[emo] += weight
 
-    Returns:
-        {
-          "symbolic_summary": str,
-          "emotions": {
-            "Fear": float,
-            "Desire": float,
-            "Calm": float,
-            "Mystery": float,
-            "Connection": float,
-            "Transformation": float
-          },
-          "tarot_shadow": str,
-          "tarot_energy": str,
-          "tarot_guidance": str
+    values = np.array(list(scores.values()), dtype=float)
+    max_v = float(values.max())
+    min_v = float(values.min())
+
+    if max_v == min_v:
+        # Fallback profile if no signal is found
+        return {
+            "Fear": 0.25,
+            "Desire": 0.45,
+            "Calm": 0.6,
+            "Mystery": 0.4,
+            "Connection": 0.5,
+            "Transformation": 0.5,
         }
-    """
-    text_lower = dream_text.lower()
-    words = re.findall(r"[a-z]+", text_lower)
-    counts = Counter(words)
 
-    def has_any(cands):
-        return any(w in counts for w in cands)
-
-    # base values
-    emotions = {
-        "Fear": 0.1,
-        "Desire": 0.1,
-        "Calm": 0.1,
-        "Mystery": 0.1,
-        "Connection": 0.1,
-        "Transformation": 0.1,
-    }
-
-    # Fear related
-    fear_words = [
-        "afraid", "scared", "fear", "terrified", "nightmare",
-        "dark", "shadow", "monster", "chasing", "chase",
-        "run", "running", "falling", "lost"
-    ]
-    if has_any(fear_words):
-        emotions["Fear"] += 0.5
-
-    if "tunnel" in counts or "underground" in counts:
-        emotions["Fear"] += 0.2
-        emotions["Mystery"] += 0.2
-
-    if "exam" in counts or "test" in counts:
-        emotions["Fear"] += 0.3
-        emotions["Desire"] += 0.2
-
-    # Desire / longing
-    desire_words = [
-        "love", "loved", "kiss", "want", "wish",
-        "longing", "desire", "romantic", "date"
-    ]
-    if has_any(desire_words):
-        emotions["Desire"] += 0.5
-
-    # Calm / safe
-    calm_words = ["floating", "fly", "flying", "calm", "quiet", "peaceful"]
-    water_words = ["sea", "ocean", "water", "lake", "river", "waves"]
-    if has_any(calm_words) or has_any(water_words):
-        emotions["Calm"] += 0.5
-        emotions["Mystery"] += 0.1
-
-    # Mystery
-    mystery_words = [
-        "strange", "weird", "unknown", "portal", "door",
-        "fog", "smoke", "mysterious", "secret"
-    ]
-    if has_any(mystery_words):
-        emotions["Mystery"] += 0.5
-
-    # Connection
-    connection_words = [
-        "family", "friend", "friends", "together",
-        "group", "people", "crowd", "someone"
-    ]
-    if has_any(connection_words):
-        emotions["Connection"] += 0.5
-
-    # Transformation / change
-    transform_words = [
-        "change", "changed", "transform", "transformation",
-        "reborn", "rebirth", "door", "gate", "opening",
-        "melting", "reforming", "new"
-    ]
-    if has_any(transform_words):
-        emotions["Transformation"] += 0.5
-
-    # normalize to [0, 1]
-    max_v = max(emotions.values()) or 1.0
-    for k in emotions:
-        emotions[k] = min(1.0, emotions[k] / max_v)
-
-    symbolic_summary = (
-        "This is a rule-based interpretation that detects words related to fear, "
-        "desire, calm, mystery, connection, and transformation in your dream "
-        "and converts them into emotional intensities."
-    )
-    tarot_shadow = (
-        "Your subconscious is processing these mixed feelings and turning them "
-        "into symbolic images during sleep."
-    )
-    tarot_energy = (
-        "The aura around this dream is a blend of your current emotional state "
-        "and hidden wishes."
-    )
-    tarot_guidance = (
-        "Notice which part of the dream felt the strongest. That emotional color "
-        "is pointing toward something important in your waking life."
-    )
-
-    return {
-        "symbolic_summary": symbolic_summary,
-        "emotions": emotions,
-        "tarot_shadow": tarot_shadow,
-        "tarot_energy": tarot_energy,
-        "tarot_guidance": tarot_guidance,
-    }
+    normalized = (values - min_v) / (max_v - min_v)
+    return {emo: float(v) for emo, v in zip(EMOTIONS, normalized)}
