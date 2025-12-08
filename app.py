@@ -2,10 +2,51 @@ import os
 import hashlib
 
 import streamlit as st
+import matplotlib.pyplot as plt
+import numpy as np
 
 from src.analyzer import analyze_dream
-from src.viz import plot_emotion_radar, plot_emotion_spectrum
 from src.generator import generate_hybrid_poster
+
+
+# -------------------------------------------------------
+#  Visualization Helpers (No import from src.viz!)
+# -------------------------------------------------------
+def plot_emotion_radar(emotions: dict):
+    """Simple radar chart for 6 emotions."""
+    labels = list(emotions.keys())
+    values = [emotions[k] for k in labels]
+
+    # close loop
+    labels.append(labels[0])
+    values.append(values[0])
+
+    angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False)
+
+    fig, ax = plt.subplots(subplot_kw={"polar": True}, figsize=(4, 4))
+    ax.plot(angles, values, linewidth=2)
+    ax.fill(angles, values, alpha=0.25)
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels(labels[:-1])
+    ax.set_yticklabels([])
+    ax.set_title("Emotion Radar", pad=12)
+
+    return fig
+
+
+def plot_emotion_spectrum(emotions: dict):
+    """Simple horizontal bar 'emotion spectrum'."""
+    labels = list(emotions.keys())
+    values = [emotions[k] for k in labels]
+
+    fig, ax = plt.subplots(figsize=(4, 4))
+    bars = ax.barh(labels, values, color="purple", alpha=0.6)
+    ax.set_xlim(0, 1)
+    ax.set_title("Emotion Spectrum")
+    for bar, v in zip(bars, values):
+        ax.text(v + 0.02, bar.get_y() + bar.get_height() / 2, f"{v:.2f}", va="center")
+    plt.tight_layout()
+    return fig
 
 
 # -------------------------------------------------------
@@ -19,7 +60,7 @@ st.set_page_config(
 
 
 # -------------------------------------------------------
-# Title & Intro
+# UI
 # -------------------------------------------------------
 st.title("✨ Aura Tarot Dream Analyzer")
 st.caption("Final Project — Arts & Advanced Big Data | Huiting Qiu")
@@ -28,88 +69,72 @@ st.markdown(
     """
 This app turns your dream into:
 
-1. **A symbolic interpretation** (AI or rule-based)
-2. **A 6-dimensional emotional profile** (Fear, Desire, Calm, Mystery, Connection, Transformation)
-3. **Visualizations** (radar chart + aura spectrum)
-4. **Generative abstract posters** in aura / tarot style
+1. **A symbolic interpretation**  
+2. **A 6-dimensional emotional profile**  
+3. **Visualizations (Radar + Spectrum)**  
+4. **Generative Dream Aura Posters**
+
+Different dreams → different posters.
 """
 )
 
 st.markdown("---")
 
-
-# -------------------------------------------------------
-# Layout: left controls, right preview
-# -------------------------------------------------------
 col_left, col_right = st.columns([1.1, 1.4])
 
+
+# ------------------------- LEFT PANEL -------------------------
 with col_left:
     st.subheader("1. Dream Input")
 
     dream_text = st.text_area(
-        "Describe your dream in as much detail as you like (English is recommended for best analysis).",
+        "Describe your dream:",
         height=200,
-        placeholder=(
-            "Example: I was walking through an endless tunnel. The walls were breathing slowly "
-            "and a faint blue light followed me from behind..."
-        ),
+        placeholder="Example: I was walking in a glowing forest where the trees were breathing...",
     )
 
     st.subheader("2. Poster Settings")
 
     poster_style = st.selectbox(
-        "Poster style",
+        "Poster Style",
         options=["Hybrid", "Aura Focus", "Geometric Focus"],
         index=0,
-        help=(
-            "Aura Focus: mostly aura / energy field\n"
-            "Hybrid: aura + a few soft rectangles\n"
-            "Geometric Focus: stronger geometric accents"
-        ),
     )
 
     multi_variation = st.checkbox(
         "Generate two poster variations",
         value=True,
-        help="If checked, you will see two posters with slightly different seeds.",
     )
 
     analyze_button = st.button("🔮 Analyze Dream & Generate Posters")
 
 
+# ------------------------- RIGHT PANEL -------------------------
 with col_right:
-    st.subheader("Live Preview Note")
-    st.write(
-        "After you click **Analyze** on the left, the emotional analysis, visualizations, "
-        "and posters will appear here."
-    )
+    st.subheader("Preview Panel")
+    st.write("Your analysis & posters will appear here after clicking **Analyze**.")
 
 
 st.markdown("---")
 
 
 # -------------------------------------------------------
-# Helper: deterministic seed from dream text
+#  Dream → deterministic seed
 # -------------------------------------------------------
 def dream_to_seed(text: str) -> int:
-    """
-    Generate a deterministic random seed from the dream text.
-    Different dreams -> different seeds.
-    Same dream -> same seed (reproducible).
-    """
     h = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return int(h[:8], 16)
 
 
 # -------------------------------------------------------
-# Main logic
+#  Main Logic
 # -------------------------------------------------------
 if analyze_button:
     if not dream_text.strip():
-        st.error("Please type something about your dream before analyzing.")
+        st.error("Please enter a dream description first.")
     else:
         # -----------------------------
-        # 1. Analyze dream (AI or rule-based)
+        # 1. Analyze Dream
         # -----------------------------
         with st.spinner("Analyzing your dream..."):
             result = analyze_dream(dream_text)
@@ -121,30 +146,30 @@ if analyze_button:
         tarot_guidance = result.get("tarot_guidance", "")
 
         # -----------------------------
-        # 2. Text interpretation
+        # 2. Interpretation
         # -----------------------------
         st.subheader("2. Interpretation & Tarot Reading")
 
         col_a, col_b = st.columns(2)
 
         with col_a:
-            st.markdown("**Symbolic Summary**")
+            st.markdown("### Symbolic Summary")
             st.write(symbolic_summary)
 
-            st.markdown("**Tarot — Shadow Message**")
+            st.markdown("### Tarot — Shadow Message")
             st.write(tarot_shadow)
 
         with col_b:
-            st.markdown("**Tarot — Aura Energy**")
+            st.markdown("### Tarot — Aura Energy")
             st.write(tarot_energy)
 
-            st.markdown("**Tarot — Guidance**")
+            st.markdown("### Tarot — Guidance")
             st.write(tarot_guidance)
 
         # -----------------------------
-        # 3. Emotional visualization
+        # 3. Visualization
         # -----------------------------
-        st.subheader("3. Emotional Profile & Visualization")
+        st.subheader("3. Emotional Visualization")
 
         if emotions:
             col_v1, col_v2 = st.columns(2)
@@ -157,16 +182,16 @@ if analyze_button:
                 spectrum_fig = plot_emotion_spectrum(emotions)
                 st.pyplot(spectrum_fig, use_container_width=True)
         else:
-            st.warning("No emotion data returned from analyzer. Please check analyzer module.")
+            st.warning("No emotion data returned.")
 
         # -----------------------------
-        # 4. Generative Posters (seed from dream)
+        # 4. Posters (dream-dependent seed)
         # -----------------------------
-        st.subheader("4. Generative Aura Posters")
+        st.subheader("4. Generative Dream Aura Posters")
 
         seed_base = dream_to_seed(dream_text)
 
-        # Poster Variation 1
+        # Variation 1
         poster_fig_1 = generate_hybrid_poster(
             emotions=emotions,
             style=poster_style,
@@ -175,7 +200,7 @@ if analyze_button:
         st.markdown("### Poster Variation 1")
         st.pyplot(poster_fig_1, use_container_width=True)
 
-        # Poster Variation 2 (optional)
+        # Variation 2
         if multi_variation:
             poster_fig_2 = generate_hybrid_poster(
                 emotions=emotions,
@@ -185,4 +210,5 @@ if analyze_button:
             st.markdown("### Poster Variation 2")
             st.pyplot(poster_fig_2, use_container_width=True)
 
-        st.success("Done! Different dreams will now produce different posters.")
+        st.success("Done! Different dreams will now generate different posters.")
+
