@@ -1,3 +1,1 @@
-"""
-Package for the Aura Tarot Dream Analyzer modules.
-"""
+# src package for Aura Tarot Dream Analyzer
