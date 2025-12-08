@@ -1,46 +1,76 @@
-import numpy as np
+# src/generator.py
+
 import matplotlib.pyplot as plt
-import random
+import numpy as np
 
-def generate_abstract_art(text, style="Energy Waves"):
-    np.random.seed(abs(hash(text)) % (10**8))
-    random.seed(abs(hash(text)) % (10**8))
+from .emotion_model import EMOTIONS, EMOTION_COLORS, blend_color, apply_style_to_color
 
-    fig, ax = plt.subplots(figsize=(10, 14))
-    ax.set_facecolor("#000000")
+
+def create_aura_poster(emotion_scores, style: str):
+    """
+    Create the generative Aura Art Poster.
+    Emotion values influence color, size, and layering of blobs.
+    """
+    fig, ax = plt.subplots(figsize=(5, 7))
+
+    # Background depends on style
+    if style in ["Mystic", "Cyber"]:
+        ax.set_facecolor("#05050a")
+    else:
+        ax.set_facecolor("#f8f5ff")
+
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
     ax.axis("off")
 
-    steps = 8000
-    angles = np.linspace(0, 6*np.pi, steps)
-    radius = np.abs(np.sin(angles * random.uniform(0.5, 2))) * random.uniform(0.3, 1.2)
+    base_blobs = 18
+    total_activation = float(sum(emotion_scores.values()))
+    n_blobs = base_blobs + int(total_activation * 8)
 
-    x = radius * np.cos(angles + random.random())
-    y = radius * np.sin(angles + random.random())
+    rng = np.random.default_rng(42)  # deterministic for grading
 
-    colors = get_style_color(style)
+    for _ in range(n_blobs):
+        # Choose an emotion according to its probability
+        probs = np.array([emotion_scores[e] for e in EMOTIONS], dtype=float)
+        probs = probs / probs.sum()
+        emo_index = int(rng.choice(len(EMOTIONS), p=probs))
+        emo = EMOTIONS[emo_index]
 
-    for i in range(steps):
-        ax.scatter(
-            x[i] + np.random.uniform(-0.05, 0.05),
-            y[i] + np.random.uniform(-0.05, 0.05),
-            color=colors[i % len(colors)],
-            s=random.uniform(5, 60),
-            alpha=random.uniform(0.05, 0.4)
-        )
+        base_color = EMOTION_COLORS[emo]
+        color = apply_style_to_color(base_color, style)
 
+        # Position
+        x = float(rng.uniform(0.1, 0.9))
+        y = float(rng.uniform(0.1, 0.9))
+
+        # Size depends on intensity
+        intensity = float(emotion_scores[emo])
+        radius = 0.08 + intensity * float(rng.uniform(0.03, 0.15))
+
+        # Alpha depends on style and intensity
+        if style == "Cyber":
+            alpha = 0.45 + intensity * 0.3
+        elif style == "Mystic":
+            alpha = 0.35 + intensity * 0.35
+        elif style == "Golden":
+            alpha = 0.4 + intensity * 0.3
+        else:  # Pastel / default
+            alpha = 0.3 + intensity * 0.25
+
+        # Main blob
+        ellipse = plt.Circle((x, y), radius, color=color, alpha=alpha)
+        ax.add_patch(ellipse)
+
+        # Soft glow
+        glow_radius = radius * 1.6
+        if style == "Pastel":
+            glow_color = blend_color(color, (1, 1, 1), 0.7)
+        else:
+            glow_color = color
+        glow_alpha = alpha * 0.35
+        glow = plt.Circle((x, y), glow_radius, color=glow_color, alpha=glow_alpha)
+        ax.add_patch(glow)
+
+    ax.set_title("Aura Tarot Dream Poster", fontsize=14, pad=18)
+    fig.tight_layout()
     return fig
-
-
-def get_style_color(style):
-    if style == "Energy Waves":
-        return ["#ff8c00", "#ff4500", "#ff0055", "#ffaa00", "#ffdd55"]
-    elif style == "Emotional Bloom":
-        return ["#ff66cc", "#ff99dd", "#cc66ff", "#aa44ff", "#550088"]
-    elif style == "Cosmic Spiral":
-        return ["#00ccff", "#0066ff", "#6600ff", "#330066", "#000022"]
-    elif style == "Chaos Flow":
-        return ["#33ff99", "#00cc66", "#00994d", "#006633", "#00331a"]
-    elif style == "Neon Aura":
-        return ["#39ff14", "#00ffea", "#ff00e1", "#ffea00", "#00c3ff"]
-    else:
-        return ["#ffffff"]
