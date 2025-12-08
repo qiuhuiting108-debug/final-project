@@ -1,84 +1,126 @@
 import streamlit as st
-import matplotlib.pyplot as plt
-import numpy as np
-import random
+from io import BytesIO
 
-st.set_page_config(page_title="Dream Visualizer", layout="wide")
-
-st.title("✨ Dream Visualizer — Abstract Generative Poster")
-
-st.write("Describe your dream, and the AI will transform it into an abstract generative poster.")
+from src.emotion_model import EMOTIONS, extract_emotions
+from src.analyzer import SYMBOLS, analyze_symbols, generate_tarot_reading
+from src.viz import create_radar_chart, create_aura_bar
+from src.generator import create_aura_poster
 
 
-# -----------------------------
-# Poster Style Color Palettes
-# -----------------------------
-def get_style_colors(style):
-    if style == "Emotional Bloom":
-        return ["#ff66cc", "#ff99dd", "#cc66ff", "#aa44ff", "#550088"]
-    elif style == "Energy Waves":
-        return ["#ff8c00", "#ff4500", "#ff0055", "#ffaa00", "#ffdd55"]
-    elif style == "Cosmic Spiral":
-        return ["#00ccff", "#0066ff", "#6600ff", "#330066", "#000022"]
-    elif style == "Neon Aura":
-        return ["#39ff14", "#00ffea", "#ff00e1", "#ffea00", "#00c3ff"]
-    else:
-        return ["#ffffff"]
+def main():
+    st.set_page_config(
+        page_title="Aura Tarot Dream Analyzer",
+        page_icon="💫",
+        layout="centered",
+    )
 
+    st.title("💫 Aura Tarot Dream Analyzer")
+    st.write(
+        "Transform your dream into **symbols, emotional data, aura colors,** "
+        "and a **generative art poster**."
+    )
 
-# -----------------------------
-# Abstract Art Generator
-# -----------------------------
-def generate_poster(text, style):
-    seed = abs(hash(text)) % (10**8)
-    np.random.seed(seed)
-    random.seed(seed)
-
-    fig, ax = plt.subplots(figsize=(10, 14))
-    ax.set_facecolor("#000000")
-    ax.axis("off")
-
-    colors = get_style_colors(style)
-
-    steps = 5000
-    angles = np.linspace(0, 8*np.pi, steps)
-    radius = np.abs(np.sin(angles * random.uniform(0.3, 1.5))) * random.uniform(0.5, 1.3)
-
-    x = radius * np.cos(angles)
-    y = radius * np.sin(angles)
-
-    for i in range(steps):
-        ax.scatter(
-            x[i] + np.random.uniform(-0.03, 0.03),
-            y[i] + np.random.uniform(-0.03, 0.03),
-            s=random.uniform(5, 40),
-            color=colors[i % len(colors)],
-            alpha=random.uniform(0.06, 0.5),
+    # Sidebar
+    with st.sidebar:
+        st.header("Settings")
+        style = st.selectbox(
+            "Aura style",
+            ["Mystic", "Pastel", "Cyber", "Golden"],
+            index=0,
+        )
+        st.markdown(
+            """
+            **Styles**
+            - *Mystic*: deep, cosmic tones  
+            - *Pastel*: soft, dreamy colors  
+            - *Cyber*: high contrast, neon-like  
+            - *Golden*: warm, ritual-like glow  
+            """
         )
 
-    return fig
+    # Input
+    st.subheader("1. Describe your dream")
+    dream_text = st.text_area(
+        "Write a short description of your dream (any language is okay).",
+        height=200,
+        placeholder=(
+            "Example: I was running in a dark train station, wearing a white dress. "
+            "The sea was below the bridge and I was afraid of falling..."
+        ),
+    )
 
+    generate = st.button("✨ Generate Dream Analysis")
 
-# -----------------------------
-# UI
-# -----------------------------
-dream_text = st.text_area("📝 Enter your dream description:", height=150)
+    if not generate:
+        return
 
-style = st.selectbox(
-    "🎨 Choose poster style",
-    ["Emotional Bloom", "Energy Waves", "Cosmic Spiral", "Neon Aura"]
-)
-
-generate_btn = st.button("Generate Poster")
-
-
-# -----------------------------
-# Run Generator
-# -----------------------------
-if generate_btn:
     if not dream_text.strip():
-        st.error("Please enter your dream.")
+        st.warning("Please write something about your dream first.")
+        return
+
+    # ===== Layer 1: Symbolic interpretation =====
+    symbols = analyze_symbols(dream_text)
+
+    st.subheader("2. Symbolic Interpretation – What you saw")
+    if symbols:
+        for s in symbols:
+            explanation = SYMBOLS.get(s, "")
+            st.markdown(f"- **{s.capitalize()}** — {explanation}")
     else:
-        with st.spinner("🎨 Generating your personalized poster..."):
-            fig = generate_poster(dream_text, style)
-            st.pyplot(fig)
+        st.write(
+            "No specific symbols from the predefined list were detected, "
+            "but your dream still carries emotional meaning through the next layers."
+        )
+
+    # ===== Layer 2: Emotional factors =====
+    emotion_scores = extract_emotions(dream_text)
+
+    st.subheader("3. Emotional Factors – What you felt")
+    cols = st.columns(len(EMOTIONS))
+    for col, emo in zip(cols, EMOTIONS):
+        with col:
+            st.metric(emo, f"{emotion_scores[emo]:.2f}")
+
+    radar_fig = create_radar_chart(emotion_scores)
+    st.pyplot(radar_fig)
+
+    aura_fig = create_aura_bar(emotion_scores, style)
+    st.pyplot(aura_fig)
+
+    # ===== Layer 3: Generative Aura Poster =====
+    st.subheader("4. Generative Aura Art Poster – Emotional DNA")
+    poster_fig = create_aura_poster(emotion_scores, style)
+    st.pyplot(poster_fig)
+
+    buf = BytesIO()
+    poster_fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
+    buf.seek(0)
+    st.download_button(
+        label="📥 Download Aura Poster (PNG)",
+        data=buf,
+        file_name="aura_dream_poster.png",
+        mime="image/png",
+    )
+
+    # ===== Layer 4: Tarot-style reading =====
+    st.subheader("5. Aura Tarot Interpretation – What it means")
+    shadow_text, energy_text, guidance_text = generate_tarot_reading(
+        symbols, emotion_scores
+    )
+
+    st.markdown("**Shadow – Subconscious message**")
+    st.write(shadow_text)
+
+    st.markdown("**Energy – Current emotional flow**")
+    st.write(energy_text)
+
+    st.markdown("**Guidance – Supportive insight**")
+    st.write(guidance_text)
+
+    st.success(
+        "Analysis complete. Scroll up to review each layer, and download your aura poster if you like."
+    )
+
+
+if __name__ == "__main__":
+    main()
